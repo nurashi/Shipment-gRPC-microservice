@@ -1,156 +1,200 @@
-Task for Vektor TMS company,
+# Technical Task of Vektor TMS
 # Shipment gRPC Microservice
 
-A gRPC microservice for managing shipments and tracking status changes during transportation. Built with Go, following Clean Architecture principles.
+A gRPC microservice for tracking shipments and their status changes during transportation. Built with Go using Clean Architecture principles.
 
-## How to Run
+---
 
-### Using Docker Compose
+## Requirements
+
+- Go 1.26+
+- Docker and Docker Compose
+
+---
+
+## Running the Service
+
+### With Docker Compose
 
 ```bash
 docker compose up --build
 ```
 
-This starts PostgreSQL 17 and the application. The gRPC server listens on port `50051`.
+This starts the application and a PostgreSQL 17 database. The gRPC server listens on port `50051`. Database migrations run automatically on startup.
 
-### Running locally
+### Locally
 
-1. Start a PostgreSQL instance (or use the one from Docker Compose):
-   ```bash
-   docker compose up db -d
-   ```
+Start only the database:
 
-2. Set environment variables (`.env`):
+```bash
+docker compose up db -d
+```
 
-Example data in .env.example
+Copy the example environment file and fill in the values:
 
-Note: environment data is for local running.
+```bash
+cp .env.example .env
+```
 
+Run the service:
 
+```bash
+make run
+```
 
+---
 
-Tests cover domain logic and application use cases with manual mock implementations of repository interfaces. No external dependencies (database, gRPC) required to run tests.
+## Running the Tests
 
-## Architecture Overview
+### Unit tests
 
-The project follows Clean Architecture with three layers:
+No external dependencies required — no database or gRPC connection needed.
+
+```bash
+make test
+```
+
+Or directly:
+
+```bash
+go test ./internal/... -v
+```
+
+### Integration tests
+
+Integration tests run against a real PostgreSQL database. Start the database first:
+
+```bash
+docker compose up db -d
+```
+
+Then run:
+
+```bash
+make test-integration
+```
+
+Integration tests use the same `DB_*` environment variables as the service. They are compiled and run only when the `integration` build tag is passed, so `make test` never requires a database.
+
+---
+
+## Architecture
+
+The project follows Clean Architecture. Each layer depends only on the layer below it, and all cross-layer communication happens through interfaces.
 
 ![Architecture Diagram](./doc/image.png)
 
-Thanks for: https://mermaid.live/edit 
+Port interfaces (`internal/ports/repository.go`) define the contract between the application and infrastructure layers. The domain package has no external dependencies.
 
+---
 
-### Key Design Principle
+## Project Structure
 
-Every layer boundary is crossed via interfaces:
-- gRPC handler calls `application.ShipmentService` (interface)
-- Application service calls `ports.ShipmentRepository` and `ports.ShipmentEventRepository` (interfaces)
-- Domain objects (structs) are shared across layers; proto types never leak beyond the gRPC handler
+```
+.
+├── cmd
+│   └── main.go                          — entry point, manual dependency wiring
+├── config
+│   └── config.go                        — environment variable loading
+├── doc
+│   └── image.png
+├── docker-compose.yml
+├── Dockerfile
+├── gen
+│   └── shipment
+│       ├── shipment_grpc.pb.go          — generated gRPC code
+│       └── shipment.pb.go               — generated protobuf code
+├── go.mod
+├── go.sum
+├── internal
+│   ├── application
+│   │   ├── service.go                   — use cases
+│   │   └── service_test.go
+│   ├── domain                           — business entities and rules
+│   │   ├── errors.go
+│   │   ├── event.go
+│   │   ├── shipment.go
+│   │   ├── shipment_test.go
+│   │   ├── status.go
+│   │   └── status_test.go
+│   ├── infrastructure
+│   │   ├── grpc
+│   │   │   ├── handler.go               — gRPC handler (proto <-> domain)
+│   │   │   └── server.go               — gRPC server lifecycle
+│   │   └── persistence
+│   │       └── postgres
+│   │           ├── repository.go        — PostgreSQL implementation
+│   │           └── repository_integration_test.go
+│   └── ports
+│       └── repository.go               — repository interfaces
+├── Makefile
+├── migrations
+│   └── 001_init.sql                     — database schema
+├── proto
+│   └── shipment.proto                   — service contract
+└── README.md
+
+16 directories, 26 files
+```
+
+---
+
+## Shipment Status Lifecycle
+
+Every shipment starts as `PENDING`. Status changes follow a strict state machine:
+
+```
+PENDING --> PICKED_UP --> IN_TRANSIT --> DELIVERED
+   |            |              |
+   v            v              v
+CANCELLED   CANCELLED      CANCELLED
+```
+
+Rules enforced at the domain level:
+
+- `DELIVERED` and `CANCELLED` are terminal — no further transitions are allowed
+- Cancellation is permitted from any non-terminal state
+- Invalid transitions (e.g. `PENDING -> DELIVERED`) are rejected with an error
+- Duplicate transitions (e.g. `PICKED_UP -> PICKED_UP`) are rejected
+- Every status change creates an immutable `ShipmentEvent` record
+
+---
 
 ## Design Decisions
 
-### Shipment Status Lifecycle
+**Clean Architecture over a simpler layered approach** — the domain and application logic are fully independent from gRPC and PostgreSQL. Swapping the database or transport layer requires implementing one interface, not touching business logic.
 
-The shipment status follows a strict state machine:
-
-```
-PENDING -> PICKED_UP -> IN_TRANSIT -> DELIVERED
-   |         |            |
-   V         V            V
-CANCELLED  CANCELLED   CANCELLED
-```
-
-- Every shipment starts as `PENDING`
-- `DELIVERED` and `CANCELLED` are terminal states — no further transitions allowed
-- Cancellation is possible from any non-terminal state
-- Invalid transitions (`PENDING -> DELIVERED`) are rejected with a descriptive error
-- Duplicate transitions (`PICKED_UP -> PICKED_UP`) are rejected
-- Each status change is recorded as an immutable `ShipmentEvent`
-
-### Why Clean Architecture?
-
-- Domain logic is testable without any infrastructure (no DB, no gRPC)
-- Repositories can be swapped (PostgreSQL -> SQLite) by implementing the same interface
-- Transport layer can be replaced (gRPC -> REST) without touching business logic
-- Each layer has a single reason to change
-
-### Manual Dependency Injection
-
-Dependencies are wired manually in `cmd/main.go` with no DI framework. This keeps the dependency chain explicit and easy to trace:
+**Manual dependency injection** — dependencies are wired explicitly in `cmd/main.go` with no framework. The chain is straightforward to follow:
 
 ```
-config -> pgxpool -> postgres.Repos -> application.Service -> grpc.Handler -> grpc.Server
+config -> pgxpool -> postgres repos -> application service -> gRPC handler -> gRPC server
 ```
 
-### Error Mapping
+**Raw SQL with pgx/v5** — no ORM. SQL queries are explicit, easy to read, and predictable in behavior.
 
-Domain errors are mapped to appropriate gRPC status codes at the transport boundary:
+**Domain errors mapped at the transport boundary** — the gRPC handler is the only place that knows about gRPC status codes:
 
-| Domain Error | gRPC Code |
+| Domain error | gRPC code |
 |---|---|
 | `ErrShipmentNotFound` | `NOT_FOUND` |
 | `ErrInvalidStatusTransition` | `INVALID_ARGUMENT` |
 | `ErrShipmentTerminated` | `FAILED_PRECONDITION` |
 | `ErrDuplicateReferenceNumber` | `ALREADY_EXISTS` |
 | `ErrMissingRequiredField` | `INVALID_ARGUMENT` |
+| `ErrInvalidFieldValue` | `INVALID_ARGUMENT` |
 
-### Testing Strategy
+**No mocking library** — test mocks are plain structs that implement the port interfaces. Go interfaces make this straightforward without additional dependencies.
 
-Tests focus on business behavior, not framework plumbing:
-- Domain tests validate the state machine, shipment creation, and transition rules
-- Application tests use manual mock structs implementing port interfaces to verify use case orchestration
-- No mocking library needed - Go interfaces make this straightforward
+---
 
 ## Assumptions
 
-1. **Single-node deployment**: No distributed locking or event sourcing. The service assumes a single instance or relies on PostgreSQL for consistency.
-2. **No authentication**: The gRPC service does not implement auth interceptors. In production, this would be handled by an API gateway or gRPC interceptor middleware.
-3. **Migrations at startup**: The SQL migration runs automatically when the service starts. 
-4. **Monetary fields as float64**: `Amount` and `DriverRevenue` use `float64` / `NUMERIC(12,2)`. A production system would use a decimal library to avoid floating-point precision issues.
-5. **UTC timestamps**: All timestamps are stored as `TIMESTAMPTZ` and managed in UTC.
-6. **Reference number uniqueness**: Each shipment must have a unique reference number, enforced at both the application and database level.
+- **Single-node deployment.** No distributed locking is implemented. Consistency relies on PostgreSQL constraints (e.g. the unique index on `reference_number`).
+- **No authentication.** Auth would be handled by a gRPC interceptor or API gateway in production.
+- **Migrations run at startup.** A dedicated migration tool would be more appropriate in production.
+- **Monetary values use float64.** A production system should use a fixed-point decimal type to avoid floating-point precision issues.
+- **All timestamps are UTC** and stored as `TIMESTAMPTZ`.
+- **Driver revenue of zero is valid.** It may represent a flat-rate or internally handled arrangement. Negative revenue is rejected.
 
-## Project Structure
-```
-❯ tree
-.
-├── cmd
-│   └── main.go               # Entry point
-├── config
-│   └── config.go             # Environment configuration
-├── docker-compose.yml        # App + PostgreSQL 17
-├── Dockerfile                # Multi-stage build
-├── gen
-│   └── shipment
-│       ├── shipment_grpc.pb.go
-│       └── shipment.pb.go    # Generated Go code
-├── go.mod
-├── go.sum
-├── internal
-│   ├── application
-│   │   ├── service.go        # Use cases
-│   │   └── service_test.go   # Application unit tests
-│   ├── domain                # Business entities & rules
-│   │   ├── errors.go         # Domain errors
-│   │   ├── event.go          # ShipmentEvent value object
-│   │   ├── shipment.go       # Shipment aggregate
-│   │   ├── shipment_test.go  # Domain unit tests
-│   │   └── status.go         # Status state machine
-│   ├── infrastructure
-│   │   ├── grpc
-│   │   │   ├── handler.go    # gRPC handler (proto <-> domain)
-│   │   │   └── server.go     # gRPC server lifecycle
-│   │   └── persistence
-│   │       └── postgres
-│   │           └── repository.go # PostgreSQL implementation
-│   └── ports
-│       └── repository.go     # Repository interfaces
-├── Makefile                  # Build targets
-├── migrations
-│   └── 001_init.sql          # Database schema
-├── proto
-│   └── shipment.proto        # Service contract
-└── README.md
 
-15 directories, 23 files
-```
+Note: The documentation is in English because the assignment was written in English.

@@ -1,4 +1,4 @@
-.PHONY: proto build run test docker-up docker-down clean
+.PHONY: proto build run test test-integration docker-up docker-down clean
 
 proto:
 	protoc \
@@ -18,6 +18,9 @@ run: build
 
 test:
 	go test ./internal/... -v
+
+test-integration:
+	go test -tags integration ./internal/... -v
 
 docker-up:
 	docker compose up --build -d
