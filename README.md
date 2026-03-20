@@ -35,8 +35,7 @@ Tests cover domain logic and application use cases with manual mock implementati
 
 The project follows Clean Architecture with three layers:
 
-./doc/image.png
-
+![Architecture Diagram](./doc/image.png)
 
 Thanks for: https://mermaid.live/edit 
 
