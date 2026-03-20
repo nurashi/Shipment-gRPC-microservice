@@ -1,3 +1,4 @@
+-- +goose Up
 CREATE TABLE IF NOT EXISTS shipments (
     id               UUID PRIMARY KEY,
     reference_number VARCHAR(255) UNIQUE NOT NULL,
@@ -22,3 +23,9 @@ CREATE TABLE IF NOT EXISTS shipment_events (
 
 CREATE INDEX IF NOT EXISTS idx_shipment_events_shipment_id ON shipment_events(shipment_id);
 CREATE INDEX IF NOT EXISTS idx_shipments_reference_number ON shipments(reference_number);
+
+-- +goose Down
+DROP INDEX IF EXISTS idx_shipments_reference_number;
+DROP INDEX IF EXISTS idx_shipment_events_shipment_id;
+DROP TABLE IF EXISTS shipment_events;
+DROP TABLE IF EXISTS shipments;

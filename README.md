@@ -123,18 +123,19 @@ Port interfaces (`internal/ports/repository.go`) define the contract between the
 │   │   │   └── server.go               — gRPC server lifecycle
 │   │   └── persistence
 │   │       └── postgres
+│   │           ├── migrate.go           — goose migration runner
 │   │           ├── repository.go        — PostgreSQL implementation
 │   │           └── repository_integration_test.go
 │   └── ports
 │       └── repository.go               — repository interfaces
 ├── Makefile
 ├── migrations
-│   └── 001_init.sql                     — database schema
+│   └── 00001_init.sql                   — database schema (goose format)
 ├── proto
 │   └── shipment.proto                   — service contract
 └── README.md
 
-16 directories, 26 files
+16 directories, 27 files
 ```
 
 ---
@@ -172,6 +173,8 @@ config -> pgxpool -> postgres repos -> application service -> gRPC handler -> gR
 
 **Raw SQL with pgx/v5** — no ORM. SQL queries are explicit, easy to read, and predictable in behavior.
 
+**Goose for migrations** — versioned migrations via [pressly/goose](https://github.com/pressly/goose). On startup the service applies only pending migrations and logs the version before and after. Adding a new migration is a single numbered `.sql` file in the `migrations/` directory.
+
 **Domain errors mapped at the transport boundary** — the gRPC handler is the only place that knows about gRPC status codes:
 
 | Domain error | gRPC code |
@@ -191,7 +194,7 @@ config -> pgxpool -> postgres repos -> application service -> gRPC handler -> gR
 
 - **Single-node deployment.** No distributed locking is implemented. Consistency relies on PostgreSQL constraints (e.g. the unique index on `reference_number`).
 - **No authentication.** Auth would be handled by a gRPC interceptor or API gateway in production.
-- **Migrations run at startup.** A dedicated migration tool would be more appropriate in production.
+- **Migrations run at startup via goose.** Only pending migrations are applied; the version is tracked in a `goose_db_version` table managed by goose.
 - **Monetary values use float64.** A production system should use a fixed-point decimal type to avoid floating-point precision issues.
 - **All timestamps are UTC** and stored as `TIMESTAMPTZ`.
 - **Driver revenue of zero is valid.** It may represent a flat-rate or internally handled arrangement. Negative revenue is rejected.

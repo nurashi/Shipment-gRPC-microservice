@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/nurashi/Shipment-gRPC-microservice/internal/domain"
 	"github.com/nurashi/Shipment-gRPC-microservice/internal/infrastructure/persistence/postgres"
@@ -39,9 +40,9 @@ func envOrDefault(key, fallback string) string {
 	return fallback
 }
 
-func migrationPath() string {
+func migrationsDir() string {
 	_, filename, _, _ := runtime.Caller(0)
-	return filepath.Join(filepath.Dir(filename), "../../../../migrations/001_init.sql")
+	return filepath.Join(filepath.Dir(filename), "../../../../migrations")
 }
 
 func setupDB(t *testing.T) *pgxpool.Pool {
@@ -59,7 +60,7 @@ func setupDB(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("failed to ping test database: %v", err)
 	}
 
-	if err := postgres.RunMigrations(ctx, pool, migrationPath()); err != nil {
+	if err := postgres.RunMigrations(testConnString(), migrationsDir()); err != nil {
 		pool.Close()
 		t.Fatalf("failed to run migrations: %v", err)
 	}

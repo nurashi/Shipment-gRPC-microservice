@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/nurashi/Shipment-gRPC-microservice/config"
 	"github.com/nurashi/Shipment-gRPC-microservice/internal/application"
@@ -35,10 +36,9 @@ func main() {
 	}
 	log.Println("connected to database")
 
-	if err := postgres.RunMigrations(ctx, pool, "migrations/001_init.sql"); err != nil {
+	if err := postgres.RunMigrations(cfg.GetPostgresConnString(), "migrations"); err != nil {
 		log.Fatalf("failed to run migrations: %v", err)
 	}
-	log.Println("migrations applied")
 
 	shipmentRepo := postgres.NewShipmentRepo(pool)
 	eventRepo := postgres.NewEventRepo(pool)

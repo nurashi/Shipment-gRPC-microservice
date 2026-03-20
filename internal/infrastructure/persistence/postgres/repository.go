@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"errors"
-	"os"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,15 +16,6 @@ type ShipmentRepo struct {
 
 func NewShipmentRepo(pool *pgxpool.Pool) *ShipmentRepo {
 	return &ShipmentRepo{pool: pool}
-}
-
-func RunMigrations(ctx context.Context, pool *pgxpool.Pool, migrationsPath string) error {
-	sql, err := os.ReadFile(migrationsPath)
-	if err != nil {
-		return err
-	}
-	_, err = pool.Exec(ctx, string(sql))
-	return err
 }
 
 func (r *ShipmentRepo) Save(ctx context.Context, s *domain.Shipment) error {
